@@ -1,28 +1,23 @@
-from tokenizer import PrimeTokenizer
-from prime_hilbert import build_vector, dot_product
-from entropy import shannon_entropy
+from engine import ResonantEngine
 
-t = PrimeTokenizer()
+# Initialize engine
+engine = ResonantEngine()
 
-doc1 = "entropy collapse resonance"
-doc2 = "symbolic entropy binds meaning"
-doc3 = "prime numbers reveal order in chaos"
+# Load all .txt files in /data/
+engine.load_directory("data")
 
-# Tokenize and vectorize
-vec1 = build_vector(t.tokenize(doc1))
-vec2 = build_vector(t.tokenize(doc2))
-vec3 = build_vector(t.tokenize(doc3))
+# Get query
+query = input("Enter your resonant query: ")
 
-# Compare all vs all
-print("resonance(doc1, doc2):", dot_product(vec1, vec2))
-print("resonance(doc1, doc3):", dot_product(vec1, vec3))
-print("resonance(doc2, doc3):", dot_product(vec2, vec3))
+# Perform search
+results = engine.search(query)
 
-# Show token mapping
-print("\nToken mapping:")
-t.print_vocab()
-
-print("\nEntropy:")
-print("doc1 entropy:", shannon_entropy(t.tokenize(doc1)))
-print("doc2 entropy:", shannon_entropy(t.tokenize(doc2)))
-print("doc3 entropy:", shannon_entropy(t.tokenize(doc3)))
+# Show results with snippet previews
+print("\nTop Resonant Matches:")
+for idx, r in enumerate(results):
+    print(f"[{idx+1}] {r['title']}")
+    print(f"    Resonance:      {r['resonance']:.4f}")
+    print(f"    Δ Entropy:      {r['delta_entropy']:.4f}")
+    print(f"    Combined Score: {r['score']:.4f}")
+    print(f"    Preview:        {r['snippet']}")
+    print()

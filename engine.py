@@ -45,7 +45,8 @@ class ResonantEngine:
                 "title": doc["title"],
                 "resonance": resonance,
                 "delta_entropy": delta_entropy,
-                "score": score
+                "score": score,
+                "snippet": doc["text"][:200].strip().replace('\n', ' ') + '...'  # clean + trim preview
             })
 
         results.sort(key=lambda x: x["score"], reverse=True)
