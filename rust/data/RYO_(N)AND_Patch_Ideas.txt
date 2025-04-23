@@ -1,0 +1,171 @@
+(n)and
+
+unipolar inverter
+A rare delight in modular, unipolar inverters (NOT gates) allow you to quickly turn a unipolar signal, like an envelope or pitch CV, to its opposite - great for ducking VCAs, generative sequences, and more!
+
+compression
+through use of a static voltage, AND gate, and inverter controlling a VCA, one can create a compressor where the static voltage is threshold, an external envelope follower is the gain reduction control, and the AND gate is used to ensure no dynamics processing occurs unless the threshold is breached by the envelope follower. See the below diagram (fig 1, wofl)
+
+waveshaper
+ANDing a signal with itself via a mult can produce interesting effects. Try also ANDing differnt wanves from the same oscillator, or differnet oscillators, together! This effect will be the mirror opposite of what an OR gate can do!
+
+Window Comparator
+using an AND gate, you can effectively perform window comparator operations using 2 bipolar signals where the positive portions of either of the inputs are swapped with the negative portions of the other input.
+
+clipper
+If you only use one input of an AND gate, you get clipping of the positive portion
+
+------------------------------------------------
+
+(n)or
+
+unipolar inverter
+A rare delight in modular, unipolar inverters (NOT gates) allow you to quickly turn a unipolar signal, like an envelope or pitch CV, to its opposite - great for ducking VCAs, generative sequences, and more!
+
+Complex envelopes
+ORing two envelopes together will create a complex envelope following the highest portion of any given envelope. Traditionally, Buchla systems would use an OR gate to combine an ASR and AD to get an ADSR envelope, as one use-case.
+
+waveshaper
+ORing a signal with itself via a mult can produce interesting effects. Try also ORing differnt wanves from the same oscillator, or differnet oscillators, together! This effect will be the mirror opposite of what an AND gate does.
+
+Window Comparator
+using an OR gate, you can effectively perform window comparator operations using 2 bipolar signals where the negative portions of either of the inputs are swapped with the positive portions of the other input.
+
+clipper
+If you only use one input of an OR gate, you get clipping of the negative portion
+
+--------------------------------------------------
+
+2xVCX
+
+soft sync
+mult a signal to an inverter and send boththe original and inverse to 1 channel of 2xvcx's A and B inputs, then use a separate square wave to switch between the two using the CV input. This is a form of soft sync called switched inversion.
+
+Frequency shifting
+using 2xvcx as a dual ring modulator, you can set up a frequency shifter - just patch channel 1's cv input with a sine and the other with a cosine, and run the output of channel 1 into channel 2's input. 
+
+Subtraction
+By using one side as a fully open attenuator and the other as an inverter and taking the mix output, you can perform subtraction. Two uses include creating new filter slopes (subtract a lowpassed signal from the original to create a highpass filter) and isolating an effect (subtract an original signal from a waveshaper, for example, to only get the waveshaped portion of the sound).
+
+---------------------------------------------------
+
+3xVCA
+
+distortion
+using the default voltage setting of 5v, you cam amplify signals up to 2x using a +10v signal, creating clipping and distortion.
+
+AM synthesis
+Classic yet oft-forgotten, AM synthesis is an old west-coast trick simply involving audio rate amplitude modulation of one oscillator with another. Using precise ratios of modulator to carrier, one can achieve granular formant synthesis, creating vowel-like timbres.
+
+Compression
+Along with an RYO (N)AND used as an inverter and AND gate, a VCA can be used as the dynamics-altering element of a compressor setup. Mult the signal to be compressed to an envelope follower and a VCA input, run the envelope and a static voltage into the AND gate, invert the output, and use it to control the VCA's level. Parts of the envelope above the static voltage will be used to turn the VCA level down dynamically.
+
+----------------------------------------------------
+
+Altered States
+
+allpass filter
+Subract the highpass output from the lowpass output to achieve an allpass filter. Subtraction can be done by mixing the lowpass output with an inverted highpass output of the same filter. You can use this as a simple phase shifter, or add feedback to create a multi-pole phaser! Adjusting levels of each inversely through a crossfader like RYO 2xVCX will create a tan(h)-shaped tilt filter.
+
+drums
+setting the resonance just past so near self-oscillation and sending a trigger or decay envelope to the filter audio or cv inputs will initiate a decaying oscillation akin to the 808 kick drum.
+
+complex VCO
+sending the output of one filter in self oscillation to the cv input of the other in self oscillation will create complex FM timbres on the output of the second filter.
+
+taming complex patches
+frequency shifters, karplus-strong resonators, and complex feedback patches can use filters to remove DC offsets that may occur or smooth out harsh frequencies. Adding resonance can add more zaniness though!
+
+Formant Filter
+taking 2 bandpass outputs and mixing them with the original signal will create a crude formant filter. tune or modulate one filter between 200-900Hz and the other between 500-2600hz for best effect.
+
+---------------------------------------------------------
+
+Ampmix+Aperture
+
+...honestly you've kinda got it covered. the manual itself showing the different uses is enough for patch ideas, methinks.
+
+---------------------------------------------------
+
+Optodist
+
+didn't open for me. might be file format?
+
+---------------------------------------------------
+
+Paths
+
+wave sequencing
+By patching a typical VCO's 4 outputs of saw, square, sine, and triangle to the inputs of Paths, and clocking it with the square wave, you can create a wave sequenced oscillator.
+
+complex sequences
+much like the classic moog 962, Paths can be used to mix and match 4 different sequences of triggers or CV (or both!) either via cycling or applying CV (like one of the sequences, or the output of Paths itself!). This can be used to create semi-generative sequences.
+
+Sequencer/Complex modulator
+By clocking Paths and sending static voltages to each input, you can create 4-note sequences. Play with rhythm and patterns up and down to create more complex sequences. Adding slew to the output will allow you to create complex envelopes and LFOs, and even use it as a crude waveshaper for swept CV's like decay envelopes or ramp LFOs.
+
+Modulation sequences
+Send various LFOs and envelopes to the inputs and switch between them with a clock. You'll have a complex modulation source using the same modules you already own!
+
+----------------------------------------------------
+
+Penta
+
+stepped oscillator
+by clocking Penta at audio rates, you can create stepped waveforms
+
+variation
+the odd step numbers of Penta allow you to create ever-evolving variation in sync with your sequences. use it to modulate a waveshaper or filter!
+
+Ratcheting
+Use Penta to control an LFO's rate in time with your sequence to create variable ratcheting per step!
+
+Clock division
+by setting the knobs to only max or minimum, you can create a divider, cutting the clock down to slower speeds based on odd divisions - great for polyrhythms!
+
+-----------------------------------------------------
+
+vc seq
+
+Ratcheting
+Use VC SEQ to control an LFO's rate in time with your sequence to create variable ratcheting per step! OR the LFO with your sequence triggers controlling your sound generator modules' envelopes.
+
+Clock division
+by setting the knobs to only max or minimum, you can create a divider, cutting the clock down to slower speeds - great for drums!
+
+Bipolar self-patched sequencing
+By patching the output to the input to control direction and speed, you can sequence the sequencer to create complex generative rhythms.
+
+Bipolar sequencing
+This in itself is a rarity among sequencers, most of which only operate in the positive unipolar range. Use this to hit occasional bass notes with your oscillators without strange patching, modulate bipolar parameters, or just use it as a full-swing audio-rate oscillator when clocked by a VCO!
+
+-----------Expander patches--------
+
+Variable sequence lengths
+patch an output to the reset input of VC SEQ to make shorter sequences. This can allow you to create odd step numbers, useful for creating polyrhythms, ever-evolving variation, or bit-reduced oscillations when clocked at audio rate.
+
+Trigger envelopes per step
+using the bottom-most trigger output, or any OR'd combination of outputs, you can trigger envelopes, samples, etc in time with the sequence
+
+Drum sequencing
+combine multiple outputs with RYO (N)OR to trigger drums in time with the sequence
+
+Sync VCOs
+a single trigger to a VCO or set of VCOs will reset their phase - great for creating swells per step or set of steps through phase differences caused by detuning of separate VCOs!
+
+------------------------------------------------------
+
+x(n)or
+
+ringmod
+XOR logic is oft-used for ring modulator sounds, as seen in the MS-20 most prominently. Patch 2 different oscillators into it and watch the chaos unfold!
+
+unipolar inverter
+A rare delight in modular, unipolar inverters (NOT gates) allow you to quickly turn a unipolar signal, like an envelope or pitch CV, to its opposite - great for ducking VCAs, generative sequences, and more!
+
+Complex modulation
+XORing two envelopes or an envelope and LFO together will create a complex modulator.
+
+
+clipper
+If you only use one input of an XOR gate, you get clipping of the positive portion
