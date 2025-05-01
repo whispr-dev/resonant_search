@@ -1,0 +1,30 @@
+# Cargo.toml
+
+[package]
+name = "resonant_search_bot" # Renamed package
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# Dependencies from original resonant search engine
+regex = "1.9.6"
+primal = "0.3.1"
+scraper = "0.17.1"
+
+# Added for Discord bot functionality
+# serenity 0.12 requires rust 1.74+
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model", "cache"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+# Optional: For reading .env files
+# dotenv = "0.15"
+
+[profile.release]
+# Optimizations for release builds
+strip = true      # Remove debug symbols to reduce size
+opt-level = "z"   # Optimize for size ("s" for speed, 3 for max speed)
+lto = true        # Enable Link Time Optimization
+codegen-units = 1 # Maximize optimization opportunities
+panic = "abort"   # Abort on panic instead of unwinding (smaller binary)
