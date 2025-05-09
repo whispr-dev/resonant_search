@@ -1,17 +1,7 @@
 // src/tokenizer.rs
 
-// Add allow(dead_code) to the unused methods in tokenizer
-// #[allow(dead_code)]
-// pub fn print_vocab(&self) { ... }
-// #[allow(dead_code)]
-// pub fn get_token(&self, prime: u64) -> Option<&String> { ... }
-// #[allow(dead_code)]
-// pub fn get_prime(&self, token: &str) -> Option<&u64> { ... }
-
 use regex::Regex;
 use std::collections::HashMap;
-// use num_primes::Generator; // Remove this line
-// use primal::arith::prime_after; // Remove this line
 use primal::Primes; // Import the Primes struct
 
 /// A tokenizer that maps words to unique prime numbers.
@@ -64,6 +54,13 @@ impl PrimeTokenizer {
 
         primes_list
     }
+    
+    /// Tokenizes the input prime numbers without updating the vocabulary.
+    /// This is useful when we want to generate tokens without affecting the tokenizer's state.
+    pub fn tokenize_without_update(&self, primes: &[u64]) -> Vec<u64> {
+        // Simply return the primes as is, since they're already prime tokens
+        primes.to_vec()
+    }
 
     #[allow(dead_code)]
     /// Prints the current vocabulary (token to prime mapping).
@@ -85,5 +82,3 @@ impl PrimeTokenizer {
         self.token_to_prime.get(token)
     }
 }
-
-// Note: In a real project, you would add tests here.
