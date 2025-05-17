@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="quantum-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5039a3" />
+      <stop offset="100%" stop-color="#8b64d9" />
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="10" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="240" fill="#f5f5ff" />
+  
+  <!-- Quantum orbital rings -->
+  <g opacity="0.6" fill="none" stroke-width="3">
+    <ellipse cx="256" cy="256" rx="180" ry="100" stroke="#5039a3" transform="rotate(0 256 256)" />
+    <ellipse cx="256" cy="256" rx="180" ry="100" stroke="#8b64d9" transform="rotate(60 256 256)" />
+    <ellipse cx="256" cy="256" rx="180" ry="100" stroke="#ff7b54" transform="rotate(120 256 256)" />
+  </g>
+  
+  <!-- Particle paths -->
+  <path d="M136,256 C136,190 190,136 256,136 C322,136 376,190 376,256 C376,322 322,376 256,376 C190,376 136,322 136,256 Z" 
+        fill="none" stroke="url(#quantum-gradient)" stroke-width="2" stroke-dasharray="10 5" />
+  
+  <!-- Core element -->
+  <circle cx="256" cy="256" r="60" fill="url(#quantum-gradient)" filter="url(#glow)" />
+  
+  <!-- Quantum particles -->
+  <g>
+    <circle cx="256" cy="136" r="16" fill="#ff7b54" />
+    <circle cx="376" cy="256" r="16" fill="#5039a3" />
+    <circle cx="256" cy="376" r="16" fill="#8b64d9" />
+    <circle cx="136" cy="256" r="16" fill="#5039a3" />
+  </g>
+  
+  <!-- Resonance waves -->
+  <g opacity="0.6" stroke-width="2" fill="none">
+    <circle cx="256" cy="256" r="90" stroke="#ff7b54" stroke-dasharray="40 20" />
+    <circle cx="256" cy="256" r="120" stroke="#8b64d9" stroke-dasharray="60 30" />
+    <circle cx="256" cy="256" r="150" stroke="#5039a3" stroke-dasharray="80 40" />
+    <circle cx="256" cy="256" r="180" stroke="#ff7b54" stroke-dasharray="100 50" />
+  </g>
+</svg>

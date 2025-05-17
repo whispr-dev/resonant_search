@@ -1,0 +1,55 @@
+[package]
+name = "quantum resonant_search"
+version = "1.0.0"
+edition = "2021"
+authors = ["whispr.dev <tom@whispr.dev>"]
+description = "A quantum-inspired web search engine"
+
+[dependencies]
+# Core dependencies from original project
+regex = "1.9.6"
+primal = "0.3.1"
+scraper = "0.17.1"
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+url = "2.5.0"
+futures = "0.3.30"
+nalgebra = "0.32.3"
+num-complex = "0.4.4"
+rand = "0.8.5"
+flate2 = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+csv = "1.2"
+ctrlc = "3.4"
+
+# New dependencies for web functionality
+axum = "0.7.2"
+tower = "0.4.13"
+tower-http = { version = "0.4.4", features = ["fs", "trace", "compression-full", "cors", "limit"] }
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+clap = { version = "4.4.11", features = ["derive"] }
+rusqlite = { version = "0.30.0", features = ["bundled"] }
+thiserror = "1.0.50"
+lazy_static = "1.4.0"
+chrono = "0.4.31"
+robots_txt = "0.3.2"
+html5ever = "0.26.0"
+markup5ever_rcdom = "0.2.0"
+async-trait = "0.1.74"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[workspace]
+members = [
+    ".",
+]
