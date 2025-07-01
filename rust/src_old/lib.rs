@@ -9,7 +9,7 @@ pub mod quantum_types;
 
 // Re-export key types and functions
 pub use engine::ResonantEngine;
-pub use engine::SearchResult;
+pub use crate::engine::ResonantSearchResult;
 pub use crawler::CrawledDocument;
 pub use prime_hilbert::{PrimeVector, BiorthogonalVector};
 pub use quantum_types::{MatrixComplex, VectorComplex};

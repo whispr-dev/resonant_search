@@ -1,26 +1,28 @@
-// src/engine.rs
+// src/engine.rs - Enhanced with deep filesystem scanning
 
 use crate::tokenizer::PrimeTokenizer;
-use crate::prime_hilbert::{build_vector, dot_product, PrimeVector, build_biorthogonal_vector, BiorthogonalVector, to_dense_vector, resonance_complex, biorthogonal_score};
-use crate::entropy::{shannon_entropy, calculate_reversibility, entropy_pressure, buffering_capacity, persistence_score};
+use crate::prime_hilbert::{build_vector, dot_product, PrimeVector, build_biorthogonal_vector, BiorthogonalVector, resonance_complex};
+use crate::entropy::{shannon_entropy, entropy_pressure, persistence_score};
 use crate::crawler::CrawledDocument;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::io::{self, Write, Read};
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::collections::HashMap;
-use scraper::Html;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::sync::mpsc;
 use flate2::write::GzEncoder;
 use flate2::read::GzDecoder;
 use flate2::Compression;
-use num_complex::Complex;
+use serde::{Serialize, Deserialize};
 
 /// Represents a processed document in the engine's index.
+#[derive(Serialize, Deserialize)]
 struct IndexedDocument {
     title: String,
     text: String,
-    compressed_text: Option<Vec<u8>>, // New field for compressed text
+    compressed_text: Option<Vec<u8>>,
     vector: PrimeVector,
     biorthogonal: BiorthogonalVector,
     entropy: f64,
@@ -32,637 +34,449 @@ struct IndexedDocument {
     historical_vectors: Vec<Vec<f64>>,
 }
 
-// Add these methods to the IndexedDocument implementation
 impl IndexedDocument {
     /// Compress the document text to save memory
     fn compress_text(&mut self) {
         if !self.text.is_empty() && self.compressed_text.is_none() {
             let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-            encoder.write_all(self.text.as_bytes()).unwrap_or_default();
-            self.compressed_text = encoder.finish().ok();
-            
-            // Only clear the text if compression was successful
-            if self.compressed_text.is_some() {
-                self.text.clear();
+            if encoder.write_all(self.text.as_bytes()).is_ok() {
+                if let Ok(compressed) = encoder.finish() {
+                    self.compressed_text = Some(compressed);
+                    self.text.clear(); // Clear original text to save memory
+                }
             }
         }
     }
-    
-    /// Decompress the text when needed
-    fn decompress_text(&mut self) -> &str {
-        if self.text.is_empty() && self.compressed_text.is_some() {
-            let compressed = self.compressed_text.as_ref().unwrap();
-            let mut decoder = GzDecoder::new(&compressed[..]);
-            let mut text = String::new();
-            
-            if decoder.read_to_string(&mut text).is_ok() {
-                self.text = text;
+
+    /// Decompress the document text for display or further processing
+    fn decompress_text(&self) -> String {
+        if let Some(compressed_bytes) = &self.compressed_text {
+            let mut decoder = GzDecoder::new(&compressed_bytes[..]);
+            let mut decompressed_text = String::new();
+            if decoder.read_to_string(&mut decompressed_text).is_ok() {
+                decompressed_text
+            } else {
+                self.text.clone()
             }
+        } else {
+            self.text.clone()
         }
-        
-        &self.text
-    }
-    
-    /// Get a snippet of the document text
-    fn get_snippet(&mut self, max_len: usize) -> String {
-        let text = self.decompress_text();
-        let snippet_chars: String = text.chars().take(max_len).collect();
-        snippet_chars.trim().replace('\n', " ") + "..."
     }
 }
 
 /// Represents a search result with scoring details and a snippet.
+#[derive(Debug)]
 pub struct SearchResult {
     pub title: String,
+    pub snippet: String,
     pub resonance: f64,
     pub delta_entropy: f64,
     pub score: f64,
     pub quantum_score: f64,
     pub persistence_score: f64,
-    pub snippet: String,
     pub path: String,
 }
 
-/// The main search engine struct that manages documents and performs searches.
 pub struct ResonantEngine {
     tokenizer: PrimeTokenizer,
-    docs: Vec<IndexedDocument>,
-    entropy_weight: f64,
-    // Quantum and persistence parameters
-    fragility: f64,
-    trend_decay: f64,
+    documents: Vec<IndexedDocument>,
     use_quantum_score: bool,
     use_persistence_score: bool,
+    // Persistence theory parameters
+    fragility: f64,
+    entropy_weight: f64,
 }
 
 impl ResonantEngine {
-    /// Save the current index state to a file
-    pub fn save_checkpoint(&self, path: &str) -> io::Result<()> {
-        let mut file = fs::File::create(path)?;
-        
-        // Write header with metadata
-        writeln!(file, "# Resonant Search Engine Checkpoint")?;
-        writeln!(file, "# Total documents: {}", self.docs.len())?;
-        writeln!(file, "# Timestamp: {}", 
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-        )?;
-        
-        // Write document entries
-        for doc in &self.docs {
-            writeln!(file, "{}\t{}\t{}\t{}\t{}", 
-                doc.path.to_string_lossy(), 
-                doc.title.replace('\t', " "),
-                doc.entropy,
-                doc.reversibility,
-                doc.timestamp
-            )?;
+    pub fn new() -> Self {
+        ResonantEngine {
+            tokenizer: PrimeTokenizer::new(),
+            documents: Vec::new(),
+            use_quantum_score: true,    // Enable by default
+            use_persistence_score: true, // Enable by default
+            fragility: 0.2,
+            entropy_weight: 0.1,
         }
-        
-        println!("Checkpoint saved to {}", path);
-        Ok(())
     }
-    
-    /// Load a previous checkpoint
-    pub fn load_checkpoint(&mut self, path: &str) -> io::Result<()> {
-        let content = fs::read_to_string(path)?;
-        let mut lines = content.lines();
-        
-        // Skip header lines
-        while let Some(line) = lines.next() {
-            if !line.starts_with('#') {
-                // Process the first non-header line
-                self.process_checkpoint_line(line)?;
-                break;
-            }
-        }
-        
-        // Process remaining lines
-        for line in lines {
-            self.process_checkpoint_line(line)?;
-        }
-        
-        println!("Loaded {} documents from checkpoint", self.docs.len());
-        Ok(())
+
+    pub fn len(&self) -> usize {
+        self.documents.len()
     }
-    
-    /// Process a single line from the checkpoint file
-    fn process_checkpoint_line(&mut self, line: &str) -> io::Result<()> {
-        let parts: Vec<&str> = line.split('\t').collect();
-        if parts.len() < 5 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData, 
-                format!("Invalid checkpoint line: {}", line)
-            ));
+
+    pub fn add_document(&mut self, title: String, text: String, path: PathBuf) {
+        if text.trim().is_empty() {
+            return; // Skip empty documents
         }
         
-        let url = parts[0];
-        let title = parts[1];
-        let entropy: f64 = parts[2].parse().unwrap_or(0.0);
-        let reversibility: f64 = parts[3].parse().unwrap_or(1.0);
-        let timestamp: u64 = parts[4].parse().unwrap_or(0);
-        
-        // Create a placeholder document to be filled with real content later
-        let path = PathBuf::from(url);
-        let tokens = self.tokenizer.tokenize("placeholder");
+        let tokens = self.tokenizer.tokenize(&text);
         let vector = build_vector(&tokens);
         let biorthogonal = build_biorthogonal_vector(&tokens);
-        let dense_vec = to_dense_vector(&vector, 1000);
-        
-        self.docs.push(IndexedDocument {
-            title: title.to_string(),
-            text: String::new(),
+        let entropy = shannon_entropy(&tokens);
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let mut doc = IndexedDocument {
+            title,
+            text,
             compressed_text: None,
             vector,
             biorthogonal,
             entropy,
             path,
-            timestamp,
-            reversibility,
-            buffering: 0.5, // Default value
-            historical_vectors: vec![dense_vec],
-        });
+            timestamp: now,
+            reversibility: 0.5,
+            buffering: 0.0,
+            historical_vectors: Vec::new(),
+        };
         
-        Ok(())
+        doc.compress_text(); // Compress immediately to save memory
+        self.documents.push(doc);
     }
-    
-    /// Compress all documents to save memory
-    pub fn compress_all_documents(&mut self) {
-        for doc in &mut self.docs {
-            doc.compress_text();
+
+    /// Deep filesystem scanning with configurable depth and file limits
+    pub fn scan_filesystem<P: AsRef<Path>>(
+        &mut self, 
+        root_path: P, 
+        max_depth: usize, 
+        max_files: usize,
+        num_workers: usize
+    ) -> io::Result<usize> {
+        let root = root_path.as_ref();
+        println!("🔍 Starting deep scan of: {}", root.display());
+
+        // Supported file extensions
+        let supported_extensions = [
+            "txt", "md", "rst", "log", "conf", "cfg", "ini", "json", "xml", "csv",
+            "html", "htm", "js", "css", "py", "rs", "c", "cpp", "h", "hpp",
+            "java", "go", "php", "rb", "sh", "bat", "sql", "yaml", "yml",
+            "toml", "dockerfile", "makefile", "readme", "license", "gitignore"
+        ];
+
+        // Collect all files first
+        let file_paths = Arc::new(Mutex::new(Vec::new()));
+        let file_count = Arc::new(Mutex::new(0));
+        
+        self.collect_files_recursive(
+            root, 
+            0, 
+            max_depth, 
+            max_files, 
+            &supported_extensions,
+            file_paths.clone(),
+            file_count.clone()
+        )?;
+
+        let paths = file_paths.lock().unwrap().clone();
+        let total_files = paths.len();
+        
+        if total_files == 0 {
+            println!("❌ No supported files found in the specified path.");
+            return Ok(0);
         }
-        println!("Compressed {} documents", self.docs.len());
-    }
-    
-    /// Export the index to a simple CSV file
-    pub fn export_index(&self, path: &str) -> io::Result<()> {
-        let mut file = fs::File::create(path)?;
-        
-        // Write CSV header
-        writeln!(file, "url,title,entropy,resonance,persistence")?;
-        
-        // Write each document
-        for doc in &self.docs {
-            writeln!(file, "\"{}\",\"{}\",{},{},{}", 
-                doc.path.to_string_lossy().replace('"', "\"\""), 
-                doc.title.replace('"', "\"\""),
-                doc.entropy,
-                doc.reversibility,
-                doc.buffering
-            )?;
+
+        println!("📄 Found {} files to index", total_files);
+
+        // Process files with multiple workers
+        let (sender, receiver) = mpsc::channel();
+        let paths = Arc::new(paths);
+        let file_index = Arc::new(Mutex::new(0));
+
+        // Spawn worker threads
+        let mut handles = Vec::new();
+        for worker_id in 0..num_workers {
+            let sender = sender.clone();
+            let paths = paths.clone();
+            let file_index = file_index.clone();
+            let total_files = total_files;
+
+            let handle = thread::spawn(move || {
+                loop {
+                    // Get next file to process
+                    let current_index = {
+                        let mut index = file_index.lock().unwrap();
+                        if *index >= total_files {
+                            break; // No more files
+                        }
+                        let idx = *index;
+                        *index += 1;
+                        idx
+                    };
+
+                    let file_path = &paths[current_index];
+                    
+                    // Progress update
+                    if current_index % 100 == 0 {
+                        println!("Worker {}: Processing file {}/{}", worker_id, current_index + 1, total_files);
+                    }
+
+                    // Process the file
+                    match Self::process_file(file_path) {
+                        Ok(Some((title, content))) => {
+                            if let Err(_) = sender.send((title, content, file_path.clone())) {
+                                break; // Receiver hung up
+                            }
+                        }
+                        Ok(None) => {
+                            // File was empty or couldn't be processed, continue
+                        }
+                        Err(e) => {
+                            eprintln!("Error processing {}: {}", file_path.display(), e);
+                        }
+                    }
+                }
+            });
+            handles.push(handle);
         }
-        
-        println!("Index exported to {}", path);
-        Ok(())
-    }
-    
-    /// Creates a new `ResonantEngine`.
-    pub fn new() -> Self {
-        ResonantEngine {
-            tokenizer: PrimeTokenizer::new(),
-            docs: Vec::new(),
-            entropy_weight: 0.1,
-            fragility: 0.2,
-            trend_decay: 0.05,
-            use_quantum_score: true,
-            use_persistence_score: true,
-        }
-    }
 
-    /// Returns the number of documents in the index.
-    pub fn len(&self) -> usize {
-        self.docs.len()
-    }
+        // Drop the original sender so receiver knows when all workers are done
+        drop(sender);
 
-    /// Enable or disable quantum scoring
-    pub fn set_use_quantum_score(&mut self, enable: bool) {
-        self.use_quantum_score = enable;
-    }
-
-    /// Enable or disable persistence scoring
-    pub fn set_use_persistence_score(&mut self, enable: bool) {
-        self.use_persistence_score = enable;
-    }
-
-    /// Adds a single local file document to the engine's index.
-    #[allow(dead_code)]
-    fn add_local_document(&mut self, title: String, text: String, path: PathBuf) {
-        let tokens = self.tokenizer.tokenize(&text);
-        let vec = build_vector(&tokens);
-        let biorthogonal = build_biorthogonal_vector(&tokens);
-        let entropy = shannon_entropy(&tokens);
-        
-        // Convert to dense vector for historical comparisons
-        let dense_vec = to_dense_vector(&vec, 1000); // Arbitrary dimension
-        
-        // Get current timestamp
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        
-        // Calculate persistence metrics
-        let reversibility = 1.0; // New document is fully reversible with itself
-        let buffering = buffering_capacity(&dense_vec);
-        
-        self.docs.push(IndexedDocument {
-            title,
-            text,
-            compressed_text: None,
-            vector: vec,
-            biorthogonal,
-            entropy,
-            path,
-            timestamp,
-            reversibility,
-            buffering,
-            historical_vectors: vec![dense_vec.clone()], // Initialize with current vector
-        });
-    }
-
-    /// Adds a crawled web document to the engine's index.
-    pub fn add_crawled_document(&mut self, doc: CrawledDocument) {
-        let tokens = self.tokenizer.tokenize(&doc.text);
-        if tokens.is_empty() {
-            return;
-        }
-        
-        let vec = build_vector(&tokens);
-        let biorthogonal = build_biorthogonal_vector(&tokens);
-        let entropy = shannon_entropy(&tokens);
-        
-        // Convert to dense vector for historical comparisons
-        let dense_vec = to_dense_vector(&vec, 1000); // Arbitrary dimension
-        
-        // Get current timestamp
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        // Receive processed documents
+        let mut indexed_count = 0;
+        while let Ok((title, content, path)) = receiver.recv() {
+            self.add_document(title, content, path);
+            indexed_count += 1;
             
-        // Calculate persistence metrics
-        let reversibility = 1.0; // New document is fully reversible with itself
-        let buffering = buffering_capacity(&dense_vec);
-
-        // Store the URL string in the path field
-        let doc_path = PathBuf::from(doc.url);
-
-        self.docs.push(IndexedDocument {
-            title: doc.title,
-            text: doc.text,
-            compressed_text: None,
-            vector: vec,
-            biorthogonal,
-            entropy,
-            path: doc_path,
-            timestamp,
-            reversibility,
-            buffering,
-            historical_vectors: vec![dense_vec.clone()], // Initialize with current vector
-        });
-    }
-
-    /// Loads and indexes supported files from a directory and its subdirectories recursively.
-    #[allow(dead_code)]
-    pub fn load_directory<P: AsRef<Path>>(&mut self, folder: P) -> io::Result<()> {
-        let path = folder.as_ref();
-        if !path.is_dir() {
-             return Err(io::Error::new(io::ErrorKind::NotFound, format!("'{}' is not a directory", path.display())));
+            if indexed_count % 500 == 0 {
+                println!("📚 Indexed {} documents...", indexed_count);
+            }
         }
-        self.process_directory_recursive(path)
+
+        // Wait for all workers to finish
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        println!("✅ Filesystem scan complete!");
+        Ok(indexed_count)
     }
 
-    /// Recursive helper function to process directories and files.
-    #[allow(dead_code)]
-    fn process_directory_recursive<P: AsRef<Path>>(&mut self, current_dir: P) -> io::Result<()> {
-        for entry in fs::read_dir(current_dir)? {
+    fn collect_files_recursive<P: AsRef<Path>>(
+        &self,
+        dir: P,
+        current_depth: usize,
+        max_depth: usize,
+        max_files: usize,
+        supported_extensions: &[&str],
+        file_paths: Arc<Mutex<Vec<PathBuf>>>,
+        file_count: Arc<Mutex<usize>>
+    ) -> io::Result<()> {
+        if current_depth > max_depth {
+            return Ok(());
+        }
+
+        let entries = fs::read_dir(dir)?;
+        
+        for entry in entries {
             let entry = entry?;
-            let file_path = entry.path();
+            let path = entry.path();
 
-            if file_path.is_file() {
-                let extension = file_path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
-                 let title = file_path.file_stem()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or_else(|| file_path.file_name().and_then(|s| s.to_str()).unwrap_or("unknown file"))
-                                .to_string();
+            // Check if we've hit the file limit
+            {
+                let count = file_count.lock().unwrap();
+                if *count >= max_files {
+                    return Ok(());
+                }
+            }
 
-                let text_content = match extension.as_str() {
-                    "txt" => {
-                        match fs::read_to_string(&file_path) {
-                            Ok(text) => Some(text),
-                            Err(e) => {
-                                eprintln!("Error reading {}: {}", file_path.display(), e);
-                                None
-                            }
+            if path.is_file() {
+                // Check if it's a supported file type
+                if let Some(extension) = path.extension() {
+                    if let Some(ext_str) = extension.to_str() {
+                        if supported_extensions.contains(&ext_str.to_lowercase().as_str()) {
+                            file_paths.lock().unwrap().push(path);
+                            *file_count.lock().unwrap() += 1;
                         }
                     }
-                    "html" => {
-                        match fs::read_to_string(&file_path) {
-                            Ok(html_string) => {
-                                let fragment = Html::parse_document(&html_string);
-                                let text = fragment.root_element().text().collect::<String>();
-                                Some(text)
-                            }
-                            Err(e) => {
-                                eprintln!("Error reading {}: {}", file_path.display(), e);
-                                None
-                            }
+                } else {
+                    // Files without extensions (like README, Makefile, etc.)
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        let name_lower = name.to_lowercase();
+                        if name_lower.contains("readme") || 
+                           name_lower.contains("license") || 
+                           name_lower.contains("makefile") ||
+                           name_lower.contains("dockerfile") {
+                            file_paths.lock().unwrap().push(path);
+                            *file_count.lock().unwrap() += 1;
                         }
-                    }
-                    _ => None,
-                };
-
-                if let Some(text) = text_content {
-                    if !text.trim().is_empty() {
-                         self.add_local_document(title, text, file_path);
-                    } else {
-                        println!("Skipping empty local document after text extraction: {}", file_path.display());
                     }
                 }
-            } else if file_path.is_dir() {
-                if let Err(e) = self.process_directory_recursive(&file_path) {
-                    eprintln!("Error traversing directory {}: {}", file_path.display(), e);
+            } else if path.is_dir() {
+                // Skip system/hidden directories
+                if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
+                    if dir_name.starts_with('.') || 
+                       dir_name == "System Volume Information" ||
+                       dir_name == "$RECYCLE.BIN" ||
+                       dir_name == "node_modules" ||
+                       dir_name == "target" ||
+                       dir_name == ".git" {
+                        continue;
+                    }
+                }
+                
+                // Recursively process subdirectory
+                if let Err(e) = self.collect_files_recursive(
+                    &path, 
+                    current_depth + 1, 
+                    max_depth, 
+                    max_files,
+                    supported_extensions,
+                    file_paths.clone(),
+                    file_count.clone()
+                ) {
+                    eprintln!("Warning: Could not access directory {}: {}", path.display(), e);
                 }
             }
         }
+
         Ok(())
     }
 
-    /// Update document relationships and calculate reversibility
-    fn update_document_relationships(&mut self) {
-        // Create a copy of all document vectors
-        let all_vectors: Vec<Vec<f64>> = self.docs.iter()
-            .map(|doc| {
-                to_dense_vector(&doc.vector, 1000) // Convert to same-sized dense vectors
-            })
-            .collect();
-        
-        // Update reversibility for each document
-        for (i, doc) in self.docs.iter_mut().enumerate() {
-            // Get all vectors except this document's vector
-            let others_vectors: Vec<Vec<f64>> = all_vectors.iter()
-                .enumerate()
-                .filter(|&(j, _)| j != i) // Skip the current document
-                .map(|(_, vec)| vec.clone())
-                .collect();
-            
-            // Update reversibility and add to historical vectors
-            if !others_vectors.is_empty() {
-                let current_vec = &all_vectors[i];
-                doc.reversibility = calculate_reversibility(current_vec, &others_vectors);
-                
-                // Only keep a reasonable number of historical vectors (e.g., up to 5)
-                if doc.historical_vectors.len() < 5 {
-                    doc.historical_vectors.push(current_vec.clone());
-                }
+    fn process_file(path: &Path) -> io::Result<Option<(String, String)>> {
+        // Get file title from filename
+        let title = path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Unknown")
+            .to_string();
+
+        // Try to read the file
+        let content = match fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(_) => {
+                // If UTF-8 reading fails, try reading as bytes and converting
+                let bytes = fs::read(path)?;
+                String::from_utf8_lossy(&bytes).to_string()
             }
+        };
+
+        // Skip if content is too small or too large
+        if content.len() < 10 || content.len() > 1_000_000 {
+            return Ok(None);
         }
+
+        // Basic content filtering
+        let trimmed_content = content.trim();
+        if trimmed_content.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some((title, trimmed_content.to_string())))
     }
 
-    /// Calculate quantum score for a document given a query
-    fn calculate_quantum_score(&self, query_vec: &PrimeVector, doc: &IndexedDocument) -> f64 {
-        // Calculate basic resonance using dot product
-        let _basic_resonance = dot_product(query_vec, &doc.vector);
-        
-        // Calculate complex resonance with decay
-        // Use doc age for decay factor - newer documents have less decay
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let doc_age = ((now - doc.timestamp) as f64) / (24.0 * 3600.0); // Age in days
-        let decay_factor = 0.01 * doc_age.min(100.0); // Cap at 100 days
-        
-        let complex_res = resonance_complex(query_vec, &doc.vector, decay_factor);
-        
-        // For biorthogonal scoring
-        let query_bio = build_biorthogonal_vector(&self.tokenizer.tokenize_without_update(query_vec.keys().cloned().collect::<Vec<_>>().as_slice()));
-        let bio_score = biorthogonal_score(&query_bio, &doc.biorthogonal);
-        
-        // Combine scores - weight the real part most heavily but consider phase
-        let quantum_score = complex_res.re * 0.6 + complex_res.im.abs() * 0.2 + bio_score * 0.2;
-        
-        quantum_score
-    }
-    
-    /// Calculate persistence score for a document
-    fn calculate_persistence_score(&self, query_entropy: f64, doc: &IndexedDocument) -> f64 {
-        // Calculate document age in days
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let doc_age = ((now - doc.timestamp) as f64) / (24.0 * 3600.0); // Age in days
-        
-        // Calculate update frequency (using a default value for now)
-        let update_frequency = 0.1; // Lower means less frequent updates
-        
-        // Get the current vector for the document
-        let _current_vec = to_dense_vector(&doc.vector, 1000);
-        
-        // Calculate persistence score using the thermodynamic model
-        let persistence = persistence_score(
-            doc.reversibility,
-            entropy_pressure(doc_age, update_frequency, self.trend_decay),
-            doc.buffering,
-            self.fragility
-        );
-        
-        // Adjust based on entropy delta with query
-        let entropy_delta = (doc.entropy - query_entropy).abs();
-        let entropy_factor = (-entropy_delta * self.entropy_weight).exp();
-        
-        persistence * entropy_factor
-    }
-
-    /// Performs a search query against the indexed documents.
-    /// Returns a vector of `SearchResult`s, sorted by score in descending order.
-    pub fn search(&mut self, query: &str, top_k: usize) -> Vec<SearchResult> {
-        // First update document relationships to ensure reversibility is current
-        self.update_document_relationships();
-        
-        let query_tokens = self.tokenizer.tokenize(query);
-        if query_tokens.is_empty() {
+    pub fn search(&mut self, query: &str, top_n: usize) -> Vec<SearchResult> {
+        if self.documents.is_empty() {
             return Vec::new();
         }
-        
+
+        let query_tokens = self.tokenizer.tokenize(query);
         let query_vec = build_vector(&query_tokens);
         let query_entropy = shannon_entropy(&query_tokens);
 
-        // First get all the scores without using 'self' inside the closure
         let mut results: Vec<SearchResult> = Vec::new();
-        
-        // Process each document individually to avoid borrowing conflicts
-        for doc in &mut self.docs {
-            // Standard resonance score
+
+        for doc in &mut self.documents {
+            // Calculate standard resonance and delta entropy
             let resonance = dot_product(&query_vec, &doc.vector);
-            let delta_entropy = (doc.entropy - query_entropy).abs();
-            let standard_score = resonance - delta_entropy * self.entropy_weight;
-            
-            // Quantum-inspired score
+            let delta_entropy = (query_entropy - doc.entropy).abs();
+
+            // Calculate standard relevance score
+            let mut score = resonance - delta_entropy * self.entropy_weight;
+
+            // Calculate quantum score if enabled
             let quantum_score = if self.use_quantum_score {
-                // Calculate directly instead of calling self.method()
-                // Begin quantum score calculation (copied from calculate_quantum_score)
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs();
-                let doc_age = ((now - doc.timestamp) as f64) / (24.0 * 3600.0); // Age in days
-                let decay_factor = 0.01 * doc_age.min(100.0); // Cap at 100 days
+                let doc_age = ((now - doc.timestamp) as f64) / (24.0 * 3600.0);
+                let decay_factor = 0.01 * doc_age.min(100.0);
                 
                 let complex_res = resonance_complex(&query_vec, &doc.vector, decay_factor);
-                
-                // For biorthogonal scoring
-                let query_bio = build_biorthogonal_vector(&self.tokenizer.tokenize_without_update(query_vec.keys().cloned().collect::<Vec<_>>().as_slice()));
-                let bio_score = biorthogonal_score(&query_bio, &doc.biorthogonal);
-                
-                // Combine scores - weight the real part most heavily but consider phase
-                complex_res.re * 0.6 + complex_res.im.abs() * 0.2 + bio_score * 0.2
-                // End quantum score calculation
+                complex_res.re * 0.6 + complex_res.im.abs() * 0.4
             } else {
                 0.0
             };
-            
-            // Persistence theory score
+
+            // Calculate persistence score if enabled
             let persistence_score = if self.use_persistence_score {
-                // Calculate directly instead of calling self.method()
-                // Begin persistence score calculation (copied from calculate_persistence_score)
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs();
-                let doc_age = ((now - doc.timestamp) as f64) / (24.0 * 3600.0); // Age in days
+                let doc_age = ((now - doc.timestamp) as f64) / (24.0 * 3600.0);
+                let update_frequency = 0.1;
                 
-                // Calculate update frequency (using a default value for now)
-                let update_frequency = 0.1; // Lower means less frequent updates
-                
-                // Calculate persistence score using the thermodynamic model
                 let persistence = persistence_score(
                     doc.reversibility,
-                    entropy_pressure(doc_age, update_frequency, self.trend_decay),
+                    entropy_pressure(doc_age, update_frequency, 0.05),
                     doc.buffering,
                     self.fragility
                 );
                 
-                // Adjust based on entropy delta with query
-                let entropy_delta = (doc.entropy - query_entropy).abs();
-                let entropy_factor = (-entropy_delta * self.entropy_weight).exp();
-                
+                let entropy_factor = (-delta_entropy * self.entropy_weight).exp();
                 persistence * entropy_factor
-                // End persistence score calculation
             } else {
                 0.0
             };
-            
-            // Generate snippet
-            let snippet = doc.get_snippet(200);
+
+            // Apply scoring weights
+            if self.use_quantum_score {
+                score += quantum_score * 0.3;
+            }
+            if self.use_persistence_score {
+                score += persistence_score * 0.2;
+            }
+
+            // Create snippet from decompressed text (Unicode-safe)
+            let full_text = doc.decompress_text();
+            let snippet = if full_text.chars().count() > 200 {
+                let truncated: String = full_text.chars().take(200).collect();
+                format!("{}...", truncated)
+            } else {
+                full_text
+            };
 
             results.push(SearchResult {
                 title: doc.title.clone(),
+                snippet,
                 resonance,
                 delta_entropy,
-                score: standard_score,
+                score,
                 quantum_score,
                 persistence_score,
-                snippet,
                 path: doc.path.to_string_lossy().into_owned(),
             });
         }
 
-        // Now sort results based on combined score
-        results.sort_by(|a, b| {
-            let a_combined = if self.use_quantum_score && self.use_persistence_score {
-                a.score * 0.5 + a.quantum_score * 0.25 + a.persistence_score * 0.25
-            } else if self.use_quantum_score {
-                a.score * 0.7 + a.quantum_score * 0.3
-            } else if self.use_persistence_score {
-                a.score * 0.7 + a.persistence_score * 0.3
-            } else {
-                a.score
-            };
-            
-            let b_combined = if self.use_quantum_score && self.use_persistence_score {
-                b.score * 0.5 + b.quantum_score * 0.25 + b.persistence_score * 0.25
-            } else if self.use_quantum_score {
-                b.score * 0.7 + b.quantum_score * 0.3
-            } else if self.use_persistence_score {
-                b.score * 0.7 + b.persistence_score * 0.3
-            } else {
-                b.score
-            };
-            
-            b_combined.partial_cmp(&a_combined).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        // Sort results by combined score (descending)
+        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
-        results.into_iter().take(top_k).collect()
+        // Return top N results
+        results.into_iter().take(top_n).collect()
     }
 
-    // Method to set the entropy weight
-    pub fn set_entropy_weight(&mut self, weight: f64) {
-        self.entropy_weight = weight;
+    // Add the missing methods that were in your original code
+    pub fn add_crawled_document(&mut self, doc: CrawledDocument) {
+        let path = PathBuf::from(&doc.url);
+        self.add_document(doc.title, doc.text, path);
     }
-    
-    // Method to set the fragility parameter
+
+    pub fn set_use_quantum_score(&mut self, enabled: bool) {
+        self.use_quantum_score = enabled;
+    }
+
+    pub fn set_use_persistence_score(&mut self, enabled: bool) {
+        self.use_persistence_score = enabled;
+    }
+
     pub fn set_fragility(&mut self, fragility: f64) {
         self.fragility = fragility;
     }
-    
-    // Method to set the trend decay parameter  
-    pub fn set_trend_decay(&mut self, decay: f64) {
-        self.trend_decay = decay;
-    }
-    
-    // Apply a quantum jump to the documents (for dynamic updates)
-    pub fn apply_quantum_jump(&mut self, query: &str, importance: f64) {
-        let query_tokens = self.tokenizer.tokenize(query);
-        if query_tokens.is_empty() {
-            return;
-        }
-        
-        let query_vec = build_vector(&query_tokens);
-        
-        // Create a simple Hamiltonian for the system
-        for doc in &mut self.docs {
-            // Convert vectors to dense format for quantum operations
-            let doc_dense = to_dense_vector(&doc.vector, 100);
-            let query_dense = to_dense_vector(&query_vec, 100);
-            
-            // Skip if too small
-            if doc_dense.is_empty() || query_dense.is_empty() {
-                continue;
-            }
-            
-            // Calculate resonance as overlap
-            let resonance = dot_product(&query_vec, &doc.vector);
-            
-            // If the document resonates with the query, boost its relevance
-            if resonance > 0.1 {
-                // Add the query vector to the document's historical vectors
-                let current_vec = to_dense_vector(&doc.vector, 1000);
-                if doc.historical_vectors.len() < 5 {
-                    doc.historical_vectors.push(current_vec);
-                } else if !doc.historical_vectors.is_empty() {
-                    // Replace oldest vector
-                    doc.historical_vectors.remove(0);
-                    doc.historical_vectors.push(current_vec);
-                }
-                
-                // Increase reversibility based on match strength
-                doc.reversibility = doc.reversibility * 0.9 + 0.1 * (resonance * importance);
-                
-                // Update timestamp to mark it as "fresher"
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                
-                // Only update if significantly newer (> 1 day)
-                if now - doc.timestamp > 24 * 3600 {
-                    doc.timestamp = now - ((now - doc.timestamp) / 2); // Make it "halfway" newer
-                }
-            }
-        }
+
+    pub fn set_entropy_weight(&mut self, weight: f64) {
+        self.entropy_weight = weight;
     }
 }

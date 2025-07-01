@@ -1,18 +1,9 @@
 // src/entropy.rs
 
 use std::collections::HashMap;
-use std::f64; // For log2
-
-// Import new quantum-related types
-use crate::quantum_types::{
-    VectorComplex,
-    mutual_information, calculate_redundancy, calculate_symmetry
-};
-use num_complex::Complex;
+use crate::quantum_types::{mutual_information, calculate_redundancy, calculate_symmetry};
 
 /// Calculates the Shannon entropy of a list of u64 values (prime tokens).
-/// Shannon entropy measures the average uncertainty of a random variable's possible outcomes.
-/// In this context, it measures the diversity/unpredictability of the prime tokens.
 pub fn shannon_entropy(primes: &[u64]) -> f64 {
     if primes.is_empty() {
         return 0.0;
@@ -34,17 +25,6 @@ pub fn shannon_entropy(primes: &[u64]) -> f64 {
     }
 
     entropy
-}
-
-/// Apply non-Hermitian decay to a quantum state vector
-pub fn apply_non_hermitian_decay(
-    state_vector: &VectorComplex<f64>, 
-    decay_rate: f64, 
-    delta_time: f64
-) -> VectorComplex<f64> {
-    state_vector.iter()
-        .map(|c| c * Complex::new((1.0 - decay_rate).powf(delta_time), 0.0))
-        .collect()
 }
 
 /// Calculate the reversibility between a document vector and historical vectors
@@ -70,11 +50,6 @@ pub fn buffering_capacity(doc_vector: &Vec<f64>) -> f64 {
     redundancy + symmetry
 }
 
-/// Apply fragility to a resonance score based on entropy pressure
-pub fn apply_fragility(resonance_score: f64, fragility: f64, entropy_pressure: f64) -> f64 {
-    resonance_score * (-fragility * entropy_pressure).exp()
-}
-
 /// Calculate a persistence score based on thermodynamic parameters
 pub fn persistence_score(
     reversibility: f64, 
@@ -86,20 +61,4 @@ pub fn persistence_score(
         return 0.0; // Avoid division by zero
     }
     ((-fragility) * (1.0 - reversibility) * (entropy_pressure / buffering)).exp()
-}
-
-/// Calculate a resonant persistence score for a document
-pub fn resonant_persistence_score(
-    doc_vector: &Vec<f64>,
-    historical_vectors: &[Vec<f64>],
-    doc_age: f64,
-    update_freq: f64,
-    trend_decay: f64,
-    fragility: f64
-) -> f64 {
-    let reversibility = calculate_reversibility(doc_vector, historical_vectors);
-    let entropy_p = entropy_pressure(doc_age, update_freq, trend_decay);
-    let buffering = buffering_capacity(doc_vector);
-    
-    persistence_score(reversibility, entropy_p, buffering, fragility)
 }

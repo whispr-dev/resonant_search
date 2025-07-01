@@ -20,8 +20,12 @@ pub use entropy::{
     calculate_reversibility,
     entropy_pressure,
     buffering_capacity,
-    persistence_score,
-    apply_non_hermitian_decay,
-    apply_fragility,
-    resonant_persistence_score
+    persistence_score
+};
+
+// Export quantum functions from their proper module
+pub use quantum_types::{
+    mutual_information,
+    calculate_redundancy,
+    calculate_symmetry
 };
